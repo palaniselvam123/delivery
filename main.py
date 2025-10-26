@@ -18,10 +18,9 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 import joblib
 
-MODEL_PATH = os.getenv(
-    "MODEL_PATH",
-    r"C:\Users\Dell\Documents\ML Projects\Delivery Time predictor\data\delay_days_best_model.joblib"
-)
+import os
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "data", "delay_days_best_model.joblib")
+
 
 app = FastAPI(
     title="Delay Days Predictor",
@@ -34,7 +33,7 @@ app = FastAPI(
 def root():
     return RedirectResponse("/docs")
 
-# Load the model at startup in the serving process (avoids __main__ pickle issues)
+# Load the model at startup in the serving process
 app.state.pipeline = None
 
 @app.on_event("startup")
@@ -64,7 +63,6 @@ class Record(BaseModel):
 
     LegNumber: Optional[int] = None
     PortCongestion: Optional[int] = None
-    Transit_Days: Optional[float] = Field(None, alias="Transit Days")
     Estimated_Transit_Days: Optional[float] = Field(None, alias="Estimated Transit Days")
 
     ETD: Optional[str] = None
@@ -95,7 +93,6 @@ class Record(BaseModel):
                 "ExternalNewsImpact": "False",
                 "LegNumber": 1,
                 "PortCongestion": 6,
-                "Transit Days": 22,
                 "Estimated Transit Days": 21,
                 "ETD": "2025-02-01T10:00:00Z",
                 "ETA": "2025-02-23T12:00:00Z",
@@ -116,7 +113,7 @@ class BatchResponse(BaseModel):
 # ---------- Feature engineering (match training) ----------
 DATE_COLS = ["ETD","ETA","ATD","ATA"]
 NUM_COLS = [
-    "Transit Days","Estimated Transit Days","LegNumber","PortCongestion",
+    "Estimated Transit Days","LegNumber","PortCongestion",
     "sched_transit_days_calc","actual_transit_days_calc","late_vs_sched_days",
     "ETD_year","ETD_month","ETD_dow","ETD_day","ETD_is_wknd",
     "ETA_year","ETA_month","ETA_dow","ETA_day","ETA_is_wknd",
@@ -128,7 +125,7 @@ CAT_COLS = [
     "Early/Late","WasRolled","RolloverReason","PaymentStatus","DocumentSubmitted",
     "WeatherSeverity","GeoRiskFlag","CarrierNotification","ExternalNewsImpact"
 ]
-DROP_COLS = ["Route No","Shipment Number","ETD","ETA","ATD","ATA","Delay Days"]
+DROP_COLS = ["Route No","Shipment Number","ETD","ETA","ATD","ATA","Delay Days","Transit Days"]
 
 def to_df(records: List[Record]) -> pd.DataFrame:
     df = pd.DataFrame([r.model_dump(by_alias=True) for r in records])

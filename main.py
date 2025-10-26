@@ -8,8 +8,16 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 # Import custom transformer so joblib can resolve pickled class
+import sys
 import fe_utils
 from fe_utils import FrequencyEncoder
+
+# Patch for common gunicorn launched as main module paths
+sys.modules['__main__'].FrequencyEncoder = FrequencyEncoder
+setattr(sys.modules['__main__'], 'FrequencyEncoder', FrequencyEncoder)
+sys.modules['gunicorn'] = sys.modules['__main__']
+sys.modules['gunicorn.main'] = sys.modules['__main__']
+
 
 # --- CRITICAL HACK FOR AZURE/joblib ---
 # Guarantee unpickler can find by __main__ as well

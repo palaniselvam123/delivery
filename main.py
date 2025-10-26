@@ -2,14 +2,18 @@ import os
 import sys
 from typing import List, Optional
 
-# Ensure module path is stable
+# Ensure module path is stable and imports from project root
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Import custom transformer module so pickle can resolve it later
-import fe_utils  # noqa: F401
-from fe_utils import FrequencyEncoder  # noqa: F401
+# Import custom transformer so joblib can resolve pickled class
+import fe_utils
+from fe_utils import FrequencyEncoder
+
+# --- CRITICAL HACK FOR AZURE/joblib ---
+# Guarantee unpickler can find by __main__ as well
+sys.modules["__main__"].FrequencyEncoder = FrequencyEncoder
 
 import numpy as np
 import pandas as pd
@@ -18,9 +22,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 import joblib
 
-import os
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "data", "delay_days_best_model.joblib")
-
 
 app = FastAPI(
     title="Delay Days Predictor",
@@ -28,12 +30,10 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Redirect root to Swagger UI
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse("/docs")
 
-# Load the model at startup in the serving process
 app.state.pipeline = None
 
 @app.on_event("startup")
@@ -44,7 +44,6 @@ def load_model_once():
 class Record(BaseModel):
     Route_No: Optional[str] = Field(None, alias="Route No")
     Shipment_Number: Optional[str] = Field(None, alias="Shipment Number")
-
     Vessel: Optional[str] = None
     Voyage: Optional[str] = None
     Carrier: Optional[str] = None
@@ -60,11 +59,9 @@ class Record(BaseModel):
     GeoRiskFlag: Optional[str] = None
     CarrierNotification: Optional[str] = None
     ExternalNewsImpact: Optional[str] = None
-
     LegNumber: Optional[int] = None
     PortCongestion: Optional[int] = None
     Estimated_Transit_Days: Optional[float] = Field(None, alias="Estimated Transit Days")
-
     ETD: Optional[str] = None
     ETA: Optional[str] = None
     ATD: Optional[str] = None
@@ -132,7 +129,6 @@ def to_df(records: List[Record]) -> pd.DataFrame:
     for c in DATE_COLS:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce")
-
     def date_feats(s: pd.Series, name: str) -> pd.DataFrame:
         return pd.DataFrame({
             f"{name}_year": s.dt.year,
@@ -141,7 +137,6 @@ def to_df(records: List[Record]) -> pd.DataFrame:
             f"{name}_day": s.dt.day,
             f"{name}_is_wknd": s.dt.dayofweek.isin([5,6]).astype("float32"),
         })
-
     for name in ["ETD","ETA","ATD","ATA"]:
         if name in df.columns:
             feats = date_feats(df[name], name)
@@ -149,16 +144,13 @@ def to_df(records: List[Record]) -> pd.DataFrame:
         else:
             for col in [f"{name}_year", f"{name}_month", f"{name}_dow", f"{name}_day", f"{name}_is_wknd"]:
                 df[col] = np.nan
-
     df["sched_transit_days_calc"]  = (df["ETA"] - df["ETD"]).dt.total_seconds() / 86400.0
     df["actual_transit_days_calc"] = (df["ATA"] - df["ATD"]).dt.total_seconds() / 86400.0
     df["late_vs_sched_days"]       = df["actual_transit_days_calc"] - df["sched_transit_days_calc"]
-
     X = df.drop(columns=[c for c in DROP_COLS if c in df.columns], errors="ignore")
     for col in NUM_COLS + CAT_COLS:
         if col not in X.columns:
             X[col] = np.nan
-
     ordered = [c for c in NUM_COLS if c in X.columns] + [c for c in CAT_COLS if c in X.columns]
     X = X[ordered + [c for c in X.columns if c not in ordered]]
     return X

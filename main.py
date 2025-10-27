@@ -1,6 +1,13 @@
 import os
 import sys
 from typing import List, Optional
+import numpy as np
+import pandas as pd
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
+import joblib
 
 # Ensure module path is stable and imports from project root
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -8,7 +15,6 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 # Import custom transformer so joblib can resolve pickled class
-import sys
 import fe_utils
 from fe_utils import FrequencyEncoder
 
@@ -18,24 +24,24 @@ setattr(sys.modules['__main__'], 'FrequencyEncoder', FrequencyEncoder)
 sys.modules['gunicorn'] = sys.modules['__main__']
 sys.modules['gunicorn.main'] = sys.modules['__main__']
 
-
 # --- CRITICAL HACK FOR AZURE/joblib ---
-# Guarantee unpickler can find by __main__ as well
 sys.modules["__main__"].FrequencyEncoder = FrequencyEncoder
 
-import numpy as np
-import pandas as pd
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
-import joblib
-
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "data", "delay_days_best_model.joblib")
+MODEL_PATH = os.path.join(BASE_DIR, "data", "delay_days_best_model.joblib")
 
 app = FastAPI(
     title="Delay Days Predictor",
     description="Predict shipment leg delay days; Swagger at /docs.",
     version="1.0.0",
+)
+
+# --- Enable CORS for all origins ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],          # <-- Restrict to production frontend domains as needed
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.get("/", include_in_schema=False)
@@ -115,7 +121,7 @@ class Prediction(BaseModel):
 class BatchResponse(BaseModel):
     predictions: List[Prediction]
 
-# ---------- Feature engineering (match training) ----------
+# ---------- Feature engineering ----------
 DATE_COLS = ["ETD","ETA","ATD","ATA"]
 NUM_COLS = [
     "Estimated Transit Days","LegNumber","PortCongestion",
